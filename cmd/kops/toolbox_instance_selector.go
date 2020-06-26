@@ -91,7 +91,7 @@ var (
 	## --flexible defaults to a 1:2 vcpus to memory ratio and 4 vcpus
 	kops toolbox instance-selector --usage-class spot --instance-group-name my-spot-mig --flexible
 
-	## Create a best-practices on-demand instance-group
+	## Create a best-practices on-demand instance-group with custom vcpus and memory range filters
 	kops toolbox instance-selector --instance-group-name my-ondemand-ig \
 	  --vcpus-min=2 --vcpus-max=4  --memory-min 2048 --memory-max 4096
 	`))
@@ -132,7 +132,7 @@ func NewCmdToolboxInstanceSelector(f *util.Factory, out io.Writer) *cobra.Comman
 	commandline.BoolFlag(clusterAutoscaler, nil, nil, "Add auto-discovery tags for cluster-autoscaler to manage the instance-group")
 	commandline.StringFlag(igName, nil, nil, "Name of the Instance-Group", func(val interface{}) error {
 		if val == nil {
-			return fmt.Errorf("you must supply an instance group name")
+			return fmt.Errorf("error you must supply --%s", igName)
 		}
 		matched, err := regexp.MatchString(nameRegex, *val.(*string))
 		if err != nil {
@@ -141,7 +141,7 @@ func NewCmdToolboxInstanceSelector(f *util.Factory, out io.Writer) *cobra.Comman
 		if matched {
 			return nil
 		}
-		return fmt.Errorf("error name must conform to the regex: \"%s\"", nameRegex)
+		return fmt.Errorf("error --%s must conform to the regex: \"%s\"", igName, nameRegex)
 	})
 
 	// Instance Group Node Configurations
@@ -153,17 +153,17 @@ func NewCmdToolboxInstanceSelector(f *util.Factory, out io.Writer) *cobra.Comman
 
 	// Aggregate Filters
 
-	commandline.StringFlag(instanceTypeBase, nil, nil, "Base Instance Type to retrieve similarly spec'd instance types", nil)
+	commandline.StringFlag(instanceTypeBase, nil, nil, "Base instance type to retrieve similarly spec'd instance types", nil)
 	commandline.BoolFlag(flexible, nil, nil, "Retrieves a group of instance types spanning multiple generations based on opinionated defaults and user overridden resource filters")
-	commandline.IntFlag(instanceGroupCount, nil, nil, "Number of Instance Groups to create w/ different vcpus-to-memory-ratios starting at 1:2 and doubling.")
+	commandline.IntFlag(instanceGroupCount, nil, nil, "Number of instance groups to create w/ different vcpus-to-memory-ratios starting at 1:2 and doubling.")
 
 	// Raw Filters
 
 	commandline.IntMinMaxRangeFlags(vcpus, nil, nil, "Number of vcpus available to the instance type.")
-	commandline.IntMinMaxRangeFlags(memory, nil, nil, "Amount of Memory available in MiB (Example: 4096)")
+	commandline.IntMinMaxRangeFlags(memory, nil, nil, "Amount of memory available in MiB (Example: 4096)")
 	commandline.RatioFlag(vcpusToMemoryRatio, nil, nil, "The ratio of vcpus to memory in MiB. (Example: 1:2)")
 	commandline.StringOptionsFlag(cpuArchitecture, nil, &cpuArchDefault, fmt.Sprintf("CPU architecture [%s]", strings.Join(cpuArchs, ", ")), cpuArchs)
-	commandline.IntMinMaxRangeFlags(gpus, nil, nil, "Total Number of GPUs (Example: 4)")
+	commandline.IntMinMaxRangeFlags(gpus, nil, nil, "Total number of GPUs (Example: 4)")
 	commandline.IntMinMaxRangeFlags(gpuMemoryTotal, nil, nil, "Number of GPUs' total memory in MiB (Example: 4096)")
 	commandline.StringOptionsFlag(placementGroupStrategy, nil, nil, fmt.Sprintf("Placement group strategy: [%s]", strings.Join(placementGroupStrategies, ", ")), placementGroupStrategies)
 	commandline.StringOptionsFlag(usageClass, nil, &usageClassDefault, fmt.Sprintf("Usage class: [%s]", strings.Join(usageClasses, ", ")), usageClasses)
@@ -198,10 +198,6 @@ func processAndValidateFlags(commandline *cli.CommandLineInterface, clusterName 
 		return fmt.Errorf("ClusterName is required")
 	}
 
-	if commandline.Flags[igName] == nil {
-		return fmt.Errorf("error you must supply a name for the instance-group")
-	}
-
 	return nil
 }
 
@@ -232,7 +228,7 @@ func retrieveClusterRefs(ctx context.Context, f *util.Factory, clusterName strin
 	return clientset, cluster, channel, nil
 }
 
-// RunToolboxInstanceSelector executes the instance-selector tool to create instance groups with declarative resources specifications
+// RunToolboxInstanceSelector executes the instance-selector tool to create instance groups with declarative resource specifications
 func RunToolboxInstanceSelector(ctx context.Context, f *util.Factory, out io.Writer, clusterName string, commandline *cli.CommandLineInterface) error {
 
 	if err := processAndValidateFlags(commandline, clusterName); err != nil {
@@ -313,7 +309,7 @@ func RunToolboxInstanceSelector(ctx context.Context, f *util.Factory, out io.Wri
 			return fmt.Errorf("error finding matching instance types")
 		}
 		if len(selectedInstanceTypes) == 0 {
-			return fmt.Errorf("error no instance types were returned becasue the criteria specified was too narrow")
+			return fmt.Errorf("no instance types were returned becasue the criteria specified was too narrow")
 		}
 		usageClass := *commandline.StringMe(flags[usageClass])
 
