@@ -480,7 +480,10 @@ func decorateWithMixedInstancesPolicy(instanceGroup *kops.InstanceGroup, usageCl
 
 func decorateWithClusterAutoscalerLabels(instanceGroup *kops.InstanceGroup) *kops.InstanceGroup {
 	ig := instanceGroup
-	clusterName := ig.ObjectMeta.Name
+	clusterName := instanceGroup.ObjectMeta.Name
+	if ig.Spec.CloudLabels == nil {
+		ig.Spec.CloudLabels = make(map[string]string)
+	}
 	ig.Spec.CloudLabels["k8s.io/cluster-autoscaler/enabled"] = igName
 	ig.Spec.CloudLabels["k8s.io/cluster-autoscaler/"+clusterName] = igName
 	return ig
