@@ -240,10 +240,11 @@ func RunToolboxInstanceSelector(ctx context.Context, f *util.Factory, out io.Wri
 		return err
 	}
 
-	zones, region, err := getClusterZonesAndRegion(cluster)
+	zones, err := getClusterZones(cluster.Spec.Subnets)
 	if err != nil {
 		return err
 	}
+	region := zones[0][:len(zones[0])-1]
 
 	tags := map[string]string{"KubernetesCluster": clusterName}
 	cloud, err := awsup.NewAWSCloud(region, tags)
@@ -306,7 +307,7 @@ func RunToolboxInstanceSelector(ctx context.Context, f *util.Factory, out io.Wri
 		}
 		selectedInstanceTypes, err := instanceSelector.Filter(mutatedFilters)
 		if err != nil {
-			return fmt.Errorf("error finding matching instance types")
+			return fmt.Errorf("error finding matching instance types: %w", err)
 		}
 		if len(selectedInstanceTypes) == 0 {
 			return fmt.Errorf("no instance types were returned becasue the criteria specified was too narrow")
@@ -396,22 +397,21 @@ func getFilters(commandline *cli.CommandLineInterface, flags map[string]interfac
 	}
 }
 
-func getClusterZonesAndRegion(cluster *kops.Cluster) ([]string, string, error) {
-	zones := []string{}
+func getClusterZones(subnets []kops.ClusterSubnetSpec) ([]string, error) {
 	region := ""
-	for _, subnet := range cluster.Spec.Subnets {
-		if len(subnet.Name) <= 2 {
-			return nil, "", fmt.Errorf("invalid AWS zone: %q", subnet.Zone)
-		}
-		zones = append(zones, subnet.Zone)
+	zones := []string{}
+	for _, subnet := range subnets {
 		zoneRegion := subnet.Zone[:len(subnet.Zone)-1]
+		zones = append(zones, subnet.Zone)
 		if region != "" && zoneRegion != region {
-			return nil, "", fmt.Errorf("clusters cannot span multiple regions")
+			return nil, fmt.Errorf("clusters cannot span multiple regions")
 		}
-
 		region = zoneRegion
 	}
-	return zones, region, nil
+	if len(zones) == 0 {
+		return nil, fmt.Errorf("the cluster must include at least 1 subnet")
+	}
+	return zones, nil
 }
 
 func createInstanceGroup(groupName, clusterName string, zones []string) *kops.InstanceGroup {
