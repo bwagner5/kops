@@ -18,13 +18,61 @@ package main
 
 import (
 	"reflect"
+	"regexp"
 	"testing"
 
+	"github.com/aws/amazon-ec2-instance-selector/pkg/cli"
 	"k8s.io/kops/pkg/apis/kops"
 )
 
-func TestGetInstanceSelectorOpts(t *testing.T) {
+func TestGetFilters(t *testing.T) {
+	commandline := cli.New("test", "test", "test", "test", nil)
+	commandline.Flags = map[string]interface{}{
+		flexible:  true,
+		allowList: regexp.MustCompile(".*"),
+		denyList:  regexp.MustCompile("t3.nano"),
+	}
 
+	filters := getFilters(&commandline, "us-east-2")
+	if !*filters.Flexible {
+		t.Fatalf("Flexible should be true")
+	}
+	if filters.AllowList == nil || filters.DenyList == nil {
+		t.Fatalf("allowList and denyList should not be nil")
+	}
+}
+
+func TestGetInstanceSelectorOpts(t *testing.T) {
+	count := int32(1)
+	outputStr := "json"
+	commandline := cli.New("test", "test", "test", "test", nil)
+	commandline.Flags = map[string]interface{}{
+		instanceGroupCount: count,
+		nodeCountMax:       count,
+		nodeCountMin:       count,
+		nodeVolumeSize:     count,
+		nodeSecurityGroups: []string{"sec1"},
+		output:             outputStr,
+		dryRun:             true,
+		clusterAutoscaler:  true,
+		igName:             "test",
+	}
+
+	instanceSelectorOpts := getInstanceSelectorOpts(&commandline)
+	if instanceSelectorOpts.NodeCountMax != count || instanceSelectorOpts.NodeCountMin != count ||
+		instanceSelectorOpts.NodeVolumeSize != count || len(instanceSelectorOpts.NodeSecurityGroups) != int(count) ||
+		instanceSelectorOpts.InstanceGroupCount != int(count) {
+		t.Fatalf("node count max/min, volume size, and count of secrurity groups should return %d", count)
+	}
+	if instanceSelectorOpts.Output != outputStr {
+		t.Fatalf("Output should be %s but got %s", outputStr, instanceSelectorOpts.Output)
+	}
+	if !instanceSelectorOpts.DryRun || !instanceSelectorOpts.ClusterAutoscaler {
+		t.Fatalf("dryRun and clusterAutoscaler should be true, got false instead")
+	}
+	if instanceSelectorOpts.InstanceGroupName != "test" {
+		t.Fatalf("instance group name should have been test")
+	}
 }
 
 func TestGetClusterZones(t *testing.T) {

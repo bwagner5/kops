@@ -139,9 +139,10 @@ func NewCmdToolboxInstanceSelector(f *util.Factory, out io.Writer) *cobra.Comman
 	usageClasses := []string{usageClassSpot, usageClassOndemand}
 	usageClassDefault := usageClassOndemand
 	outputDefault := "yaml"
+	dryRunDefault := false
+	clusterAutoscalerDefault := false
 	nodeCountMinDefault := 2
 	nodeCountMaxDefault := 15
-	nodeVolumeSizeDefault := 8
 	maxResultsDefault := 20
 
 	commandline.StringFlag(igName, nil, nil, "Name of the Instance-Group", func(val interface{}) error {
@@ -162,9 +163,9 @@ func NewCmdToolboxInstanceSelector(f *util.Factory, out io.Writer) *cobra.Comman
 
 	commandline.IntFlag(nodeCountMin, nil, &nodeCountMinDefault, "Set the minimum number of nodes")
 	commandline.IntFlag(nodeCountMax, nil, &nodeCountMaxDefault, "Set the maximum number of nodes")
-	commandline.IntFlag(nodeVolumeSize, nil, &nodeVolumeSizeDefault, "Set instance volume size (in GiB) for nodes")
+	commandline.IntFlag(nodeVolumeSize, nil, nil, "Set instance volume size (in GiB) for nodes")
 	commandline.StringSliceFlag(nodeSecurityGroups, nil, nil, "Add precreated additional security groups to nodes")
-	commandline.BoolFlag(clusterAutoscaler, nil, nil, "Add auto-discovery tags for cluster-autoscaler to manage the instance-group")
+	commandline.BoolFlag(clusterAutoscaler, nil, &clusterAutoscalerDefault, "Add auto-discovery tags for cluster-autoscaler to manage the instance-group")
 
 	// Aggregate Filters
 
@@ -192,57 +193,10 @@ func NewCmdToolboxInstanceSelector(f *util.Factory, out io.Writer) *cobra.Comman
 	// Output Flags
 
 	commandline.IntFlag(maxResults, nil, &maxResultsDefault, "Maximum number of instance types to return back")
-	commandline.BoolFlag(dryRun, nil, nil, "If true, only print the object that would be sent, without sending it. This flag can be used to create a cluster YAML or JSON manifest.")
+	commandline.BoolFlag(dryRun, nil, &dryRunDefault, "If true, only print the object that would be sent, without sending it. This flag can be used to create a cluster YAML or JSON manifest.")
 	commandline.StringFlag(output, commandline.StringMe("o"), &outputDefault, "Output format. One of json|yaml. Used with the --dry-run flag.", nil)
 
 	return commandline.Command
-}
-
-func processAndValidateFlags(commandline *cli.CommandLineInterface, clusterName string) (map[string]interface{}, error) {
-	if err := commandline.SetUntouchedFlagValuesToNil(); err != nil {
-		return nil, err
-	}
-
-	if err := commandline.ProcessRangeFilterFlags(); err != nil {
-		return nil, err
-	}
-
-	if err := commandline.ValidateFlags(); err != nil {
-		return nil, err
-	}
-
-	if clusterName == "" {
-		return nil, fmt.Errorf("ClusterName is required")
-	}
-
-	return commandline.Flags, nil
-}
-
-func retrieveClusterRefs(ctx context.Context, f *util.Factory, clusterName string) (simple.Clientset, *kops.Cluster, *kops.Channel, error) {
-	clientset, err := f.Clientset()
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	cluster, err := clientset.GetCluster(ctx, clusterName)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	if cluster == nil {
-		return nil, nil, nil, fmt.Errorf("cluster %q not found", clusterName)
-	}
-
-	channel, err := cloudup.ChannelForCluster(cluster)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	if len(cluster.Spec.Subnets) == 0 {
-		return nil, nil, nil, fmt.Errorf("configuration must include Subnets")
-	}
-
-	return clientset, cluster, channel, nil
 }
 
 // RunToolboxInstanceSelector executes the instance-selector tool to create instance groups with declarative resource specifications
@@ -359,6 +313,53 @@ func RunToolboxInstanceSelector(ctx context.Context, f *util.Factory, out io.Wri
 	return nil
 }
 
+func processAndValidateFlags(commandline *cli.CommandLineInterface, clusterName string) (map[string]interface{}, error) {
+	if err := commandline.SetUntouchedFlagValuesToNil(); err != nil {
+		return nil, err
+	}
+
+	if err := commandline.ProcessRangeFilterFlags(); err != nil {
+		return nil, err
+	}
+
+	if err := commandline.ValidateFlags(); err != nil {
+		return nil, err
+	}
+
+	if clusterName == "" {
+		return nil, fmt.Errorf("ClusterName is required")
+	}
+
+	return commandline.Flags, nil
+}
+
+func retrieveClusterRefs(ctx context.Context, f *util.Factory, clusterName string) (simple.Clientset, *kops.Cluster, *kops.Channel, error) {
+	clientset, err := f.Clientset()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	cluster, err := clientset.GetCluster(ctx, clusterName)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if cluster == nil {
+		return nil, nil, nil, fmt.Errorf("cluster %q not found", clusterName)
+	}
+
+	channel, err := cloudup.ChannelForCluster(cluster)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if len(cluster.Spec.Subnets) == 0 {
+		return nil, nil, nil, fmt.Errorf("configuration must include Subnets")
+	}
+
+	return clientset, cluster, channel, nil
+}
+
 func getFilters(commandline *cli.CommandLineInterface, region string) selector.Filters {
 	flags := commandline.Flags
 	return selector.Filters{
@@ -389,11 +390,13 @@ func getInstanceSelectorOpts(commandline *cli.CommandLineInterface) InstanceSele
 	flags := commandline.Flags
 	opts.NodeCountMin = int32(*commandline.IntMe(flags[nodeCountMin]))
 	opts.NodeCountMax = int32(*commandline.IntMe(flags[nodeCountMax]))
-	opts.NodeVolumeSize = int32(*commandline.IntMe(flags[nodeVolumeSize]))
 	opts.InstanceGroupName = *commandline.StringMe(flags[igName])
 	opts.Output = *commandline.StringMe(flags[output])
 	opts.DryRun = *commandline.BoolMe(flags[dryRun])
 	opts.ClusterAutoscaler = *commandline.BoolMe(flags[clusterAutoscaler])
+	if flags[nodeVolumeSize] != nil {
+		opts.NodeVolumeSize = int32(*commandline.IntMe(flags[nodeVolumeSize]))
+	}
 	if flags[nodeSecurityGroups] != nil {
 		opts.NodeSecurityGroups = *commandline.StringSliceMe(flags[nodeSecurityGroups])
 	}
