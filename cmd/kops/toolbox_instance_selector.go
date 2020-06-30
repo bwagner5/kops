@@ -85,7 +85,7 @@ const (
 type InstanceSelectorOptions struct {
 	NodeCountMin       int32
 	NodeCountMax       int32
-	NodeVolumeSize     int32
+	NodeVolumeSize     *int32
 	NodeSecurityGroups []string
 	ClusterAutoscaler  bool
 	InstanceGroupName  string
@@ -96,17 +96,16 @@ type InstanceSelectorOptions struct {
 
 var (
 	toolboxInstanceSelectorLong = templates.LongDesc(i18n.T(`
-	Generate on-demand or spot instance-group specs by providing resource specs like vcpus and memory rather than instance types.`))
+	Generate AWS EC2 on-demand or spot instance-groups by providing resource specs like vcpus and memory rather than instance types.`))
 
 	toolboxInstanceSelectorExample = templates.Examples(i18n.T(`
 
 	## Create a best-practices spot instance-group using a MixInstancesPolicy and Capacity-Optimized spot allocation strategy
 	## --flexible defaults to a 1:2 vcpus to memory ratio and 4 vcpus
-	kops toolbox instance-selector --usage-class spot --instance-group-name my-spot-mig --flexible
+	kops toolbox instance-selector --usage-class spot --flexible --instance-group-name my-spot-mig
 
 	## Create a best-practices on-demand instance-group with custom vcpus and memory range filters
-	kops toolbox instance-selector --instance-group-name my-ondemand-ig \
-	  --vcpus-min=2 --vcpus-max=4  --memory-min 2048 --memory-max 4096
+	kops toolbox instance-selector --instance-group-name ondemand-ig --vcpus-min=2 --vcpus-max=4 --memory-min 2048 --memory-max 4096
 	`))
 
 	toolboxInstanceSelectorShort = i18n.T(`Generate on-demand or spot instance-group specs by providing resource specs like vcpus and memory.`)
@@ -230,7 +229,7 @@ func RunToolboxInstanceSelector(ctx context.Context, f *util.Factory, out io.Wri
 	}
 
 	igCount := instanceSelectorOpts.InstanceGroupCount
-	if flags[instanceGroupCount] == nil || igCount == 0 {
+	if flags[instanceGroupCount] == nil {
 		igCount = 1
 	}
 	filters := getFilters(commandline, region)
@@ -255,7 +254,7 @@ func RunToolboxInstanceSelector(ctx context.Context, f *util.Factory, out io.Wri
 			return fmt.Errorf("error finding matching instance types: %w", err)
 		}
 		if len(selectedInstanceTypes) == 0 {
-			return fmt.Errorf("no instance types were returned becasue the criteria specified was too narrow")
+			return fmt.Errorf("no instance types were returned because the criteria specified was too narrow")
 		}
 		usageClass := *filters.UsageClass
 
@@ -395,7 +394,8 @@ func getInstanceSelectorOpts(commandline *cli.CommandLineInterface) InstanceSele
 	opts.DryRun = *commandline.BoolMe(flags[dryRun])
 	opts.ClusterAutoscaler = *commandline.BoolMe(flags[clusterAutoscaler])
 	if flags[nodeVolumeSize] != nil {
-		opts.NodeVolumeSize = int32(*commandline.IntMe(flags[nodeVolumeSize]))
+		volumeSize := int32(*commandline.IntMe(flags[nodeVolumeSize]))
+		opts.NodeVolumeSize = &volumeSize
 	}
 	if flags[nodeSecurityGroups] != nil {
 		opts.NodeSecurityGroups = *commandline.StringSliceMe(flags[nodeSecurityGroups])
@@ -439,7 +439,7 @@ func decorateWithInstanceGroupSpecs(instanceGroup *kops.InstanceGroup, instanceG
 	ig := instanceGroup
 	ig.Spec.MinSize = &instanceGroupOpts.NodeCountMin
 	ig.Spec.MaxSize = &instanceGroupOpts.NodeCountMax
-	ig.Spec.RootVolumeSize = &instanceGroupOpts.NodeVolumeSize
+	ig.Spec.RootVolumeSize = instanceGroupOpts.NodeVolumeSize
 	ig.Spec.AdditionalSecurityGroups = instanceGroupOpts.NodeSecurityGroups
 	return ig
 }
@@ -466,17 +466,11 @@ func decorateWithMixedInstancesPolicy(instanceGroup *kops.InstanceGroup, usageCl
 		return nil, fmt.Errorf("error node usage class not supported")
 	}
 
-	usageClassLabelKey := "kops.k8s.io/instance-selector/usage-class"
+	generatedWithLabelKey := "kops.k8s.io/instance-selector"
 	if ig.Spec.CloudLabels == nil {
-		ig.Spec.CloudLabels = map[string]string{usageClassLabelKey: usageClass}
-	} else {
-		ig.Spec.CloudLabels[usageClassLabelKey] = usageClass
+		ig.Spec.CloudLabels = make(map[string]string)
 	}
-	if ig.Spec.NodeLabels == nil {
-		ig.Spec.NodeLabels = map[string]string{usageClassLabelKey: usageClass}
-	} else {
-		ig.Spec.NodeLabels[usageClassLabelKey] = usageClass
-	}
+	ig.Spec.CloudLabels[generatedWithLabelKey] = "1"
 
 	return ig, nil
 }

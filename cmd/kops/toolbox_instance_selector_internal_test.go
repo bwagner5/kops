@@ -50,7 +50,7 @@ func TestGetInstanceSelectorOpts(t *testing.T) {
 		instanceGroupCount: count,
 		nodeCountMax:       count,
 		nodeCountMin:       count,
-		nodeVolumeSize:     count,
+		nodeVolumeSize:     &count,
 		nodeSecurityGroups: []string{"sec1"},
 		output:             outputStr,
 		dryRun:             true,
@@ -60,7 +60,7 @@ func TestGetInstanceSelectorOpts(t *testing.T) {
 
 	instanceSelectorOpts := getInstanceSelectorOpts(&commandline)
 	if instanceSelectorOpts.NodeCountMax != count || instanceSelectorOpts.NodeCountMin != count ||
-		instanceSelectorOpts.NodeVolumeSize != count || len(instanceSelectorOpts.NodeSecurityGroups) != int(count) ||
+		*instanceSelectorOpts.NodeVolumeSize != count || len(instanceSelectorOpts.NodeSecurityGroups) != int(count) ||
 		instanceSelectorOpts.InstanceGroupCount != int(count) {
 		t.Fatalf("node count max/min, volume size, and count of secrurity groups should return %d", count)
 	}
@@ -115,10 +115,11 @@ func TestCreateInstanceGroup(t *testing.T) {
 }
 
 func TestDecorateWithInstanceGroupSpecs(t *testing.T) {
+	count := int32(1)
 	instanceGroupOpts := InstanceSelectorOptions{
-		NodeCountMax:       1,
-		NodeCountMin:       1,
-		NodeVolumeSize:     1,
+		NodeCountMax:       count,
+		NodeCountMin:       count,
+		NodeVolumeSize:     &count,
 		NodeSecurityGroups: []string{"sec-1", "sec-2"},
 	}
 	actualIG := decorateWithInstanceGroupSpecs(&kops.InstanceGroup{}, instanceGroupOpts)
@@ -128,7 +129,7 @@ func TestDecorateWithInstanceGroupSpecs(t *testing.T) {
 	if *actualIG.Spec.MinSize != instanceGroupOpts.NodeCountMin {
 		t.Fatalf("expected instance group MinSize to be %d but got %d", instanceGroupOpts.NodeCountMin, actualIG.Spec.MinSize)
 	}
-	if *actualIG.Spec.RootVolumeSize != instanceGroupOpts.NodeVolumeSize {
+	if *actualIG.Spec.RootVolumeSize != *instanceGroupOpts.NodeVolumeSize {
 		t.Fatalf("expected instance group RootVolumeSize to be %d but got %d", instanceGroupOpts.NodeVolumeSize, actualIG.Spec.RootVolumeSize)
 	}
 	if !reflect.DeepEqual(actualIG.Spec.AdditionalSecurityGroups, instanceGroupOpts.NodeSecurityGroups) {
